@@ -1,0 +1,6 @@
+.env
+audio/
+files/
+.DS_Store
+.vscode/
+__pycache__/
