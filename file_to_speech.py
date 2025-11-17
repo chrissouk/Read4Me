@@ -17,6 +17,7 @@ from typing import Optional
 
 from pdf_to_text import pdf_to_text
 from text_to_speech import text_to_speech
+from audio_merger import merge_audio
 
 
 def file_to_speech(
@@ -25,7 +26,8 @@ def file_to_speech(
     model: str = "gpt-4o-mini-tts",
     instructions: Optional[str] = None,
     output_dir: str = "./audio/",
-) -> Path:
+    merge: bool = True,
+) -> list:
     """Convert a file to speech using a handler chosen by file type.
 
     Args:
@@ -52,18 +54,30 @@ def file_to_speech(
     # Dispatch based on suffix. In future this can be extended with a
     # registration mechanism or mapping table.
     if suffix == ".pdf":
-        # Extract text from PDF and synthesize speech
+        # Extract text from PDF and synthesize speech (chunked)
         text = pdf_to_text(str(src))
-        filename = f"{src.stem}.mp3"
-        out_path = text_to_speech(
+        parts = text_to_speech(
             text,
-            filename=filename,
+            out_stem=src.stem,
             voice=voice,
             model=model,
             instructions=instructions,
             output_dir=output_dir,
         )
-        return out_path
+
+        # If requested, merge parts into single file
+        if merge and len(parts) > 1:
+            merged_path = Path(output_dir) / f"{src.stem}.mp3"
+            merged = merge_audio(parts, out_path=merged_path)
+            # Optionally remove parts after merging
+            for p in parts:
+                try:
+                    p.unlink()
+                except Exception:
+                    pass
+            return [merged]
+
+        return parts
 
     # Placeholder for future file types
     raise NotImplementedError(f"File type not supported yet: {suffix}")

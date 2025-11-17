@@ -8,7 +8,7 @@ the text to OpenAI's TTS model, and saves the resulting audio under
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 import os
 from datetime import datetime
 
@@ -19,11 +19,13 @@ from openai import OpenAI
 def text_to_speech(
     text: str,
     filename: Optional[str] = None,
+    out_stem: Optional[str] = None,
+    max_chars: int = 3500,
     voice: str = "onyx",
     model: str = "gpt-4o-mini-tts",
     instructions: Optional[str] = None,
     output_dir: str = "./audio/",
-) -> Path:
+) -> List[Path]:
     """Convert `text` to speech using OpenAI and save to `output_dir`.
 
     Args:
@@ -36,7 +38,9 @@ def text_to_speech(
         output_dir: Directory to save audio files (created if missing).
 
     Returns:
-        Path to the saved audio file.
+        A list of `Path` objects to the saved audio file(s). If the text
+        is small it will be a single-element list; large text will be split
+        into multiple chunks and multiple files will be returned.
 
     Raises:
         RuntimeError: If the OpenAI API key is not available or the request fails.
@@ -55,24 +59,60 @@ def text_to_speech(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    if filename:
-        out_path = out_dir / filename
+    # Simple sentence-aware chunking: split on sentence boundaries then accumulate
+    import re
+
+    sentences = [s.strip() for s in re.split(r'(?<=[\.\!?])\s+', text) if s.strip()]
+
+    chunks: List[str] = []
+    cur = ""
+    for sent in sentences:
+        if cur and len(cur) + 1 + len(sent) > max_chars:
+            chunks.append(cur.strip())
+            cur = sent
+        else:
+            cur = (cur + " " + sent).strip() if cur else sent
+    if cur:
+        chunks.append(cur.strip())
+
+    # If no sentences (very short text) fallback
+    if not chunks:
+        chunks = [text]
+
+    saved_paths: List[Path] = []
+
+    # Determine base stem for part filenames
+    if out_stem:
+        base_stem = out_stem
+    elif filename:
+        base_stem = Path(filename).stem
     else:
-        ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-        out_path = out_dir / f"speech_{ts}.mp3"
+        base_stem = datetime.utcnow().strftime("speech_%Y%m%d%H%M%S")
 
-    try:
-        with client.audio.speech.with_streaming_response.create(
-            model=model,
-            voice=voice,
-            input=text,
-            instructions=instructions or "be fluent & clear, like a podcast narrator",
-        ) as response:
-            response.stream_to_file(out_path)
-    except Exception as e:
-        raise RuntimeError(f"Text-to-speech request failed: {e}") from e
+    for i, chunk in enumerate(chunks, start=1):
+        if len(chunks) == 1:
+            # single-file naming
+            if filename:
+                out_path = out_dir / filename
+            else:
+                out_path = out_dir / f"{base_stem}.mp3"
+        else:
+            out_path = out_dir / f"{base_stem}_part{i:03d}.mp3"
 
-    return out_path
+        try:
+            with client.audio.speech.with_streaming_response.create(
+                model=model,
+                voice=voice,
+                input=chunk,
+                instructions=instructions or "be fluent & clear, like a podcast narrator",
+            ) as response:
+                response.stream_to_file(out_path)
+        except Exception as e:
+            raise RuntimeError(f"Text-to-speech request failed for chunk {i}: {e}") from e
+
+        saved_paths.append(out_path)
+
+    return saved_paths
 
 
 if __name__ == "__main__":
@@ -86,8 +126,9 @@ if __name__ == "__main__":
     out_name = sys.argv[2] if len(sys.argv) >= 3 else None
 
     try:
-        path = text_to_speech(input_text, filename=out_name)
-        print(f"Saved audio to: {path}")
+        paths = text_to_speech(input_text, filename=out_name)
+        for p in paths:
+            print(f"Saved audio to: {p}")
     except Exception as err:
         print(f"Error: {err}")
         raise SystemExit(1)
