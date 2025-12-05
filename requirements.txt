@@ -2,3 +2,4 @@ pdfplumber>=0.7.6
 openai>=1.0.0
 python-dotenv>=1.0.0
 pydub>=0.25.1
+rich>=13.3.0

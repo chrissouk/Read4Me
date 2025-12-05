@@ -4,9 +4,20 @@ Requires `pydub` and `ffmpeg` available on the PATH.
 """
 from pathlib import Path
 from typing import Iterable, List, Optional
+import logging
+import re
+
+try:
+    from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
+    _RICH = True
+except Exception:
+    _RICH = False
 
 from pydub import AudioSegment
-import re
+
+logger = logging.getLogger(__name__)
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(level=logging.INFO)
 
 
 def merge_audio(file_paths: Iterable[Path], out_path: Optional[Path] = None, gap_ms: int = 300) -> Path:
@@ -41,10 +52,28 @@ def merge_audio(file_paths: Iterable[Path], out_path: Optional[Path] = None, gap
         out_path = Path(out_path)
 
     combined = AudioSegment.silent(duration=0)
-    for f in files:
-        seg = AudioSegment.from_file(f)
-        combined += seg
-        combined += AudioSegment.silent(duration=gap_ms)
+
+    if _RICH:
+        progress = Progress(
+            TextColumn("Merging: {task.description}"),
+            BarColumn(bar_width=None),
+            "{task.completed}/{task.total}",
+            TimeElapsedColumn(),
+        )
+        task = progress.add_task(description=out_path.name, total=len(files))
+        with progress:
+            for f in files:
+                logger.info("Reading file %s", f)
+                seg = AudioSegment.from_file(f)
+                combined += seg
+                combined += AudioSegment.silent(duration=gap_ms)
+                progress.advance(task)
+    else:
+        for f in files:
+            logger.info("Reading file %s", f)
+            seg = AudioSegment.from_file(f)
+            combined += seg
+            combined += AudioSegment.silent(duration=gap_ms)
 
     # export to mp3
     combined.export(out_path, format="mp3")

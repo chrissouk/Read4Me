@@ -14,10 +14,23 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional
+import logging
+
+try:
+    from rich.console import Console
+    from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+    _RICH = True
+except Exception:
+    _RICH = False
 
 from pdf_to_text import pdf_to_text
 from text_to_speech import text_to_speech
 from audio_merger import merge_audio
+
+logger = logging.getLogger(__name__)
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(level=logging.INFO)
+console = Console() if _RICH else None
 
 
 def file_to_speech(
@@ -47,6 +60,7 @@ def file_to_speech(
     """
     src = Path(file_path)
     if not src.exists():
+        logger.error("Input file not found: %s", file_path)
         raise FileNotFoundError(f"Input file not found: {file_path}")
 
     suffix = src.suffix.lower()
@@ -54,8 +68,13 @@ def file_to_speech(
     # Dispatch based on suffix. In future this can be extended with a
     # registration mechanism or mapping table.
     if suffix == ".pdf":
-        # Extract text from PDF and synthesize speech (chunked)
+        logger.info("Starting PDF -> speech for %s", src)
+        if _RICH and console:
+            console.log(f"[bold]Extracting text from:[/] {src}")
         text = pdf_to_text(str(src))
+
+        if _RICH and console:
+            console.log(f"[bold]Sending text to TTS (chunked)[/]")
         parts = text_to_speech(
             text,
             out_stem=src.stem,
@@ -65,18 +84,25 @@ def file_to_speech(
             output_dir=output_dir,
         )
 
+        logger.info("TTS produced %d parts", len(parts))
+
         # If requested, merge parts into single file
         if merge and len(parts) > 1:
             merged_path = Path(output_dir) / f"{src.stem}.mp3"
+            if _RICH and console:
+                console.log(f"[bold]Merging {len(parts)} parts into[/] {merged_path}")
             merged = merge_audio(parts, out_path=merged_path)
             # Optionally remove parts after merging
             for p in parts:
                 try:
+                    logger.debug("Removing part file %s", p)
                     p.unlink()
                 except Exception:
-                    pass
+                    logger.warning("Failed to remove part %s", p)
+            logger.info("Merge complete: %s", merged)
             return [merged]
 
+        logger.info("Returning %d part(s)", len(parts))
         return parts
 
     # Placeholder for future file types
