@@ -14,6 +14,19 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 from openai import OpenAI
+import logging
+
+try:
+    from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn
+    from rich.console import Console
+    _RICH = True
+except Exception:
+    _RICH = False
+
+logger = logging.getLogger(__name__)
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(level=logging.INFO)
+console = Console() if _RICH else None
 
 
 def text_to_speech(
@@ -89,6 +102,9 @@ def text_to_speech(
     else:
         base_stem = datetime.utcnow().strftime("speech_%Y%m%d%H%M%S")
 
+    # Log chunking summary
+    logger.info("Text split into %d chunk(s) (max_chars=%d)", len(chunks), max_chars)
+
     for i, chunk in enumerate(chunks, start=1):
         if len(chunks) == 1:
             # single-file naming
@@ -99,6 +115,11 @@ def text_to_speech(
         else:
             out_path = out_dir / f"{base_stem}_part{i:03d}.mp3"
 
+        # send chunk to OpenAI
+        logger.info("Sending chunk %d/%d to TTS (chars=%d) -> %s", i, len(chunks), len(chunk), out_path)
+        if _RICH and console:
+            console.print(f"[cyan]TTS:[/] chunk {i}/{len(chunks)} -> [bold]{out_path.name}[/]")
+
         try:
             with client.audio.speech.with_streaming_response.create(
                 model=model,
@@ -106,8 +127,11 @@ def text_to_speech(
                 input=chunk,
                 instructions=instructions or "be fluent & clear, like a podcast narrator",
             ) as response:
+                # stream and log progress if rich available
                 response.stream_to_file(out_path)
+                logger.info("Chunk %d written to %s", i, out_path)
         except Exception as e:
+            logger.exception("TTS failed for chunk %d", i)
             raise RuntimeError(f"Text-to-speech request failed for chunk {i}: {e}") from e
 
         saved_paths.append(out_path)
@@ -130,5 +154,6 @@ if __name__ == "__main__":
         for p in paths:
             print(f"Saved audio to: {p}")
     except Exception as err:
+        logger.exception("text_to_speech failed")
         print(f"Error: {err}")
         raise SystemExit(1)
