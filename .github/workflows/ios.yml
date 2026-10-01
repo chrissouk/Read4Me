@@ -1,0 +1,18 @@
+name: iOS
+on:
+  push:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  pull_request:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test iPhone app
+        run: >-
+          xcodebuild -project ios/Read4Me.xcodeproj -scheme Read4Me
+          -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
+          -derivedDataPath "$RUNNER_TEMP/read4me-build"
+          CODE_SIGNING_ALLOWED=NO
+          -test-timeouts-enabled YES -default-test-execution-time-allowance 60 test
