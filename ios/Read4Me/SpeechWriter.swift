@@ -1,62 +1,76 @@
-import AVFoundation
+import Foundation
 
-// The synthesizer stays alive for the whole write; buffer handling is serialized.
-@MainActor
+struct SpeechConfiguration: Codable, Equatable {
+    var model = "gpt-4o-mini-tts"
+    var voice = "onyx"
+    var instructions = "be fluent & clear, like a podcast narrator"
+
+    static let voices = ["alloy", "ash", "ballad", "coral", "echo", "fable",
+                         "nova", "onyx", "sage", "shimmer", "verse"]
+}
+
 final class SpeechWriter {
-    private let synthesizer = AVSpeechSynthesizer()
+    private let session: URLSession
 
-    func write(_ text: String, voiceIdentifier: String, to url: URL) async throws {
-        guard let voice = AVSpeechSynthesisVoice(identifier: voiceIdentifier) else {
-            throw LibraryError.noVoice
-        }
-        let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = voice
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-        let sink = AudioBufferSink(url: url)
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            synthesizer.write(utterance) { buffer in
-                sink.receive(buffer, continuation: continuation)
+    init(session: URLSession = .shared) { self.session = session }
+
+    func write(_ text: String, configuration: SpeechConfiguration, apiKey: String, to url: URL) async throws {
+        var request = URLRequest(url: URL(string: "https://api.openai.com/v1/audio/speech")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 180
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(SpeechRequest(configuration: configuration, input: text))
+        let (data, response) = try await session.data(for: request)
+        guard let response = response as? HTTPURLResponse else { throw SpeechError.invalidResponse }
+        guard (200..<300).contains(response.statusCode) else {
+            if response.statusCode == 429,
+               let failure = try? JSONDecoder().decode(APIErrorResponse.self, from: data),
+               failure.error.code == "insufficient_quota" {
+                throw SpeechError.insufficientQuota
             }
+            throw SpeechError.httpStatus(response.statusCode)
         }
+        guard !data.isEmpty else { throw SpeechError.invalidResponse }
+        try data.write(to: url, options: .atomic)
     }
 }
 
-private final class AudioBufferSink: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "Read4Me.audio-writer")
-    private let url: URL
-    private var file: AVAudioFile?
-    private var failure: Error?
-    private var finished = false
+private struct SpeechRequest: Encodable {
+    let model: String
+    let voice: String
+    var instructions: String
+    let input: String
+    let response_format = "mp3"
 
-    init(url: URL) { self.url = url }
+    init(configuration: SpeechConfiguration, input: String) {
+        model = configuration.model
+        voice = configuration.voice
+        instructions = configuration.instructions
+        if instructions.isEmpty { instructions = SpeechConfiguration().instructions }
+        self.input = input
+    }
+}
 
-    func receive(_ buffer: AVAudioBuffer, continuation: CheckedContinuation<Void, Error>) {
-        queue.sync {
-            guard !finished, let pcm = buffer as? AVAudioPCMBuffer else { return }
-            if pcm.frameLength == 0 {
-                finished = true
-                let didWrite = file != nil
-                file = nil // Close the file before the caller validates or renames it.
-                if let failure {
-                    continuation.resume(throwing: failure)
-                } else if !didWrite {
-                    continuation.resume(throwing: LibraryError.emptyAudio)
-                } else {
-                    continuation.resume()
-                }
-                return
-            }
-            guard failure == nil else { return }
-            do {
-                if file == nil {
-                    file = try AVAudioFile(forWriting: url, settings: pcm.format.settings,
-                                           commonFormat: pcm.format.commonFormat,
-                                           interleaved: pcm.format.isInterleaved)
-                }
-                try file?.write(from: pcm)
-            } catch {
-                failure = error
-            }
+private struct APIErrorResponse: Decodable {
+    struct Failure: Decodable { let code: String? }
+    let error: Failure
+}
+
+enum SpeechError: LocalizedError {
+    case missingKey, legacyConversion, invalidResponse, insufficientQuota
+    case httpStatus(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .missingKey: return "Add your OpenAI API key in Settings before creating audio."
+        case .legacyConversion: return "Use Recreate with OpenAI to replace the previous Apple narration."
+        case .invalidResponse: return "OpenAI returned no usable audio. Resume conversion to try again."
+        case .insufficientQuota: return "Your OpenAI API account needs available credits. Check API billing, then resume conversion."
+        case .httpStatus(401): return "OpenAI rejected your API key. Replace it in Settings, then resume conversion."
+        case .httpStatus(403): return "This API key cannot access speech generation. Check its project permissions."
+        case .httpStatus(429): return "OpenAI is limiting requests. Wait briefly, then resume conversion."
+        case .httpStatus(let status): return "OpenAI could not generate this section (HTTP \(status)). Resume conversion to try again."
         }
     }
 }

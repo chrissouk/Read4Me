@@ -38,7 +38,9 @@ final class LibraryStore: ObservableObject {
 
     func folder(for id: UUID) -> URL { root.appendingPathComponent(id.uuidString, isDirectory: true) }
     func audioURL(for id: UUID, chunk: Int) -> URL {
-        folder(for: id).appendingPathComponent("chunk-\(chunk).caf")
+        var extensionName = "caf"
+        if book(id)?.speechConfiguration != nil { extensionName = "mp3" }
+        return folder(for: id).appendingPathComponent("chunk-\(chunk).\(extensionName)")
     }
     func book(_ id: UUID) -> Book? { books.first { $0.id == id } }
 
@@ -77,6 +79,19 @@ final class LibraryStore: ObservableObject {
         return book.id
     }
 
+    func resetConversion(_ id: UUID) throws {
+        guard var book = book(id) else { return }
+        book.chunks = []
+        book.position = 0
+        book.speechConfiguration = nil
+        book.voiceIdentifier = nil
+        book.conversionError = nil
+        try update(book)
+        for url in try manager.contentsOfDirectory(at: folder(for: id), includingPropertiesForKeys: nil) {
+            if url.lastPathComponent.hasPrefix("chunk-") { try manager.removeItem(at: url) }
+        }
+    }
+
     func delete(_ id: UUID) throws {
         // Save the catalog first so a deletion never leaves a dangling book entry.
         try save(books.filter { $0.id != id })
@@ -91,13 +106,12 @@ final class LibraryStore: ObservableObject {
 }
 
 enum LibraryError: LocalizedError {
-    case invalidPDF, noText, noVoice, emptyAudio
+    case invalidPDF, noText, emptyAudio
     var errorDescription: String? {
         switch self {
         case .invalidPDF: return "This file could not be opened as a PDF."
         case .noText: return "This PDF has no extractable text. Scanned PDFs need OCR before importing."
-        case .noVoice: return "The selected voice is unavailable. Install it in iPhone Settings or select another voice."
-        case .emptyAudio: return "The voice produced no audio. Try another installed voice."
+        case .emptyAudio: return "OpenAI returned no playable audio. Resume conversion to try again."
         }
     }
 }

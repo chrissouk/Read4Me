@@ -14,5 +14,5 @@ jobs:
           xcodebuild -project ios/Read4Me.xcodeproj -scheme Read4Me
           -destination 'platform=iOS Simulator,name=iPhone 16 Pro'
           -derivedDataPath "$RUNNER_TEMP/read4me-build"
-          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGN_IDENTITY=-
           -test-timeouts-enabled YES -default-test-execution-time-allowance 60 test

@@ -12,6 +12,12 @@ final class Read4MeTests: XCTestCase {
         XCTAssertEqual(chunks.joined(), text)
     }
 
+    func testSentenceBoundariesMatchPythonAndRespectDefaultLimit() {
+        XCTAssertEqual(TextChunker.split("One sentence. Another one! Last?", limit: 26),
+                       ["One sentence. Another one!", "Last?"])
+        XCTAssertEqual(TextChunker.split(String(repeating: "x", count: 3501)).map(\.count), [3500, 1])
+    }
+
     func testWhitespaceUnicodeAndEmptyText() {
         XCTAssertEqual(TextChunker.split(" \n\t "), [])
         let text = String(repeating: "👩🏽‍🚀 reading café. ", count: 100)
@@ -105,35 +111,6 @@ final class Read4MeTests: XCTestCase {
         XCTAssertEqual(restored.position, 20)
         restored.clear()
         player.clear()
-    }
-
-    @MainActor
-    func testAppleNarrationSavesPlayableAudioAndResumeKeepsCompletedChunks() async throws {
-        guard let voice = AVSpeechSynthesisVoice(language: "en-US") else {
-            throw XCTSkip("No English voice installed on this simulator")
-        }
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: root) }
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let url = root.appendingPathComponent("Narration.pdf")
-        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 400, height: 400))
-        try renderer.writePDF(to: url) { context in
-            context.beginPage()
-            ("Welcome to Read4Me. Keep reading wherever you are." as NSString)
-                .draw(at: CGPoint(x: 10, y: 10), withAttributes: [.font: UIFont.systemFont(ofSize: 12)])
-        }
-        let library = LibraryStore(root: root.appendingPathComponent("Library"))
-        let id = try library.importPDF(url)
-        let converter = ConversionController(library: library)
-        await converter.generate(id, voiceIdentifier: voice.identifier)
-        let book = try XCTUnwrap(library.book(id))
-        XCTAssertNil(book.conversionError)
-        XCTAssertTrue(book.isReady)
-        let audioURL = library.audioURL(for: id, chunk: 0)
-        XCTAssertGreaterThan(try AVAudioPlayer(contentsOf: audioURL).duration, 0)
-        let modified = try audioURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-        await converter.generate(id, voiceIdentifier: voice.identifier)
-        XCTAssertEqual(try audioURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate, modified)
     }
 
 }

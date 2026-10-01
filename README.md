@@ -4,9 +4,9 @@ Because Speechify costs too much money
 
 ## iPhone app
 
-The native SwiftUI app lives in `ios/Read4Me.xcodeproj`. Import PDFs, preview text, generate narration locally with Apple voices, and listen with saved position, speed, skips, a sleep timer, and system playback controls.
+The native SwiftUI app lives in `ios/Read4Me.xcodeproj`. Import PDFs, preview text, generate narration with your existing OpenAI model and voice settings, and listen with saved position, speed, skips, a sleep timer, and system playback controls.
 
-See [iOS setup and CarPlay activation](ios/README.md). The Python/OpenAI workflow below remains available for cloud-generated MP3 narration.
+See [iOS setup and CarPlay activation](ios/README.md). The app uses the same OpenAI speech workflow as the Python tools below and stores the resulting MP3s on the device.
 
 Read4Me converts documents to speech
 using OpenAI TTS and a small, local pipeline.

@@ -5,6 +5,8 @@ struct LibraryView: View {
     @ObservedObject var library: LibraryStore
     @ObservedObject var converter: ConversionController
     @ObservedObject var player: PlayerController
+    @ObservedObject var apiKeys: APIKeyStore
+    @State private var showingSettings = false
     @State private var importing = false
     @State private var path: [UUID] = []
     @State private var pendingDeletion: Book?
@@ -15,7 +17,7 @@ struct LibraryView: View {
                 Section {
                     Text("Your documents. Your listening time.")
                         .font(.title2.bold())
-                    Text("Import a PDF and turn it into an audiobook using an installed Apple voice. Everything stays on this device.")
+                    Text("Import a PDF and turn it into an audiobook using OpenAI narration. Your library and audio stay on this device.")
                         .foregroundStyle(.secondary)
                 }
                 if library.books.isEmpty {
@@ -49,10 +51,15 @@ struct LibraryView: View {
             }
             .navigationTitle("Read4Me")
             .toolbar {
-                Button("Import PDF", systemImage: "plus") { importing = true }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Settings", systemImage: "gearshape") { showingSettings = true }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Import PDF", systemImage: "plus") { importing = true }
+                }
             }
             .navigationDestination(for: UUID.self) { id in
-                BookView(id: id, library: library, converter: converter, player: player)
+                BookView(id: id, library: library, converter: converter, player: player, apiKeys: apiKeys)
             }
             .safeAreaInset(edge: .bottom) {
                 if let book = player.currentBook {
@@ -71,6 +78,7 @@ struct LibraryView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingSettings) { SettingsView(apiKeys: apiKeys) }
         .tint(.indigo)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
             do {

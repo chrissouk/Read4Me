@@ -4,11 +4,12 @@ import SwiftUI
 final class AppModel {
     static let shared = AppModel()
     let library = LibraryStore.deviceLibrary()
+    let apiKeys = APIKeyStore()
     let converter: ConversionController
     let player: PlayerController
 
     private init() {
-        converter = ConversionController(library: library)
+        converter = ConversionController(library: library, apiKeys: apiKeys)
         player = PlayerController(library: library)
     }
 }
@@ -20,7 +21,7 @@ struct Read4MeApp: App {
 
     var body: some Scene {
         WindowGroup {
-            LibraryView(library: model.library, converter: model.converter, player: model.player)
+            LibraryView(library: model.library, converter: model.converter, player: model.player, apiKeys: model.apiKeys)
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active {
