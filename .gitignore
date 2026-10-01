@@ -4,3 +4,8 @@ files/
 .DS_Store
 .vscode/
 __pycache__/
+# Xcode local state
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcresult
